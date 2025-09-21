@@ -44,8 +44,8 @@ void OdometrySpoofNode::timerCallback() {
 
   // Fill header
   odom_msg.header.stamp = transform_stamped.header.stamp;
-  odom_msg.header.frame_id = source_frame;  // "world" frame
-  odom_msg.child_frame_id  = target_frame;  // "robot" frame
+  odom_msg.header.frame_id = "map";  // Use "map" frame for consistency
+  odom_msg.child_frame_id  = "base_link";  // Standard robot base frame
 
   // Pose from TF
   odom_msg.pose.pose.position.x = transform_stamped.transform.translation.x;

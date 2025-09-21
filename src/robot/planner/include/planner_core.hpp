@@ -70,18 +70,23 @@ class PlannerCore {
   public:
     explicit PlannerCore(const rclcpp::Logger& logger);
     
-    // Public methods
+    // Public methods for the node to call
     nav_msgs::msg::Path planPath(const nav_msgs::msg::OccupancyGrid::SharedPtr map,
                                 const geometry_msgs::msg::PointStamped& goal,
                                 const nav_msgs::msg::Odometry::SharedPtr odom);
+    bool isGoalReached(const geometry_msgs::msg::PointStamped& goal,
+                      const nav_msgs::msg::Odometry::SharedPtr odom,
+                      double tolerance = 0.5) const;
 
   private:
     rclcpp::Logger logger_;
     
     // Map parameters
-    int map_width_, map_height_;
+    int map_width_;
+    int map_height_;
     double map_resolution_;
-    double map_origin_x_, map_origin_y_;
+    double map_origin_x_;
+    double map_origin_y_;
     
     // A* algorithm methods
     std::vector<geometry_msgs::msg::PoseStamped> aStar(const std::vector<std::vector<signed char>>& map,
@@ -100,6 +105,9 @@ class PlannerCore {
     
     // Path smoothing
     std::vector<geometry_msgs::msg::PoseStamped> smoothPath(const std::vector<geometry_msgs::msg::PoseStamped>& path);
+    
+    // Helper methods
+    double calculateDistance(const geometry_msgs::msg::Point& a, const geometry_msgs::msg::Point& b) const;
 };
 
 }  

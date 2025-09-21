@@ -4,8 +4,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
-#include <vector>
-#include <cmath>
+#include "costmap_core.hpp"
  
 class CostmapNode : public rclcpp::Node {
   public:
@@ -19,23 +18,8 @@ class CostmapNode : public rclcpp::Node {
     // Callback function
     void lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan);
     
-    // Costmap processing functions
-    void initializeCostmap();
-    void convertToGrid(double range, double angle, int& x_grid, int& y_grid);
-    void markObstacle(int x_grid, int y_grid);
-    void inflateObstacles();
-    void publishCostmap();
-    
-    // Grid parameters (300x300 with center at 150,150)
-    static const int grid_width_ = 300;
-    static const int grid_height_ = 300;
-    static const double grid_resolution_;
-    static const double grid_origin_x_;
-    static const double grid_origin_y_;
-    static const double inflation_radius_;
-    
-    // Define the grid
-    std::vector<std::vector<signed char>> grid_;
+    // Core functionality
+    robot::CostmapCore core_;
 };
  
 #endif 

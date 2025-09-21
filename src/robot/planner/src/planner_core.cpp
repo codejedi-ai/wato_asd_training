@@ -7,11 +7,11 @@ namespace robot
 
 PlannerCore::PlannerCore(const rclcpp::Logger& logger) 
 : logger_(logger),
-  map_width_(200),
-  map_height_(200),
+  map_width_(300),
+  map_height_(300),
   map_resolution_(0.1),
-  map_origin_x_(-10.0),
-  map_origin_y_(-10.0)
+  map_origin_x_(150.0),
+  map_origin_y_(150.0)
 {
   RCLCPP_INFO(logger_, "Planner Core initialized");
 }
@@ -60,6 +60,13 @@ nav_msgs::msg::Path PlannerCore::planPath(const nav_msgs::msg::OccupancyGrid::Sh
   RCLCPP_INFO(logger_, "Path planned with %zu waypoints", path_poses.size());
   
   return path;
+}
+
+bool PlannerCore::isGoalReached(const geometry_msgs::msg::PointStamped& goal,
+                               const nav_msgs::msg::Odometry::SharedPtr odom,
+                               double tolerance) const {
+  double distance = calculateDistance(odom->pose.pose.position, goal.point);
+  return distance < tolerance;
 }
 
 std::vector<geometry_msgs::msg::PoseStamped> PlannerCore::aStar(const std::vector<std::vector<signed char>>& map,
@@ -171,12 +178,16 @@ bool PlannerCore::isValidCell(const CellIndex& cell, const std::vector<std::vect
 
 bool PlannerCore::isObstacle(const CellIndex& cell, const std::vector<std::vector<signed char>>& map) {
   if (!isValidCell(cell, map)) return true;
-  return map[cell.y][cell.x] > 50; // Threshold for obstacle
+  // Use occupancy values: -1 = unknown, 0 = free, 100 = occupied
+  // Treat unknown cells as obstacles for safety
+  signed char cell_value = map[cell.y][cell.x];
+  return cell_value == -1 || cell_value == 100;
 }
 
 CellIndex PlannerCore::worldToGrid(double world_x, double world_y) const {
-  int x = static_cast<int>((world_x - map_origin_x_) / map_resolution_);
-  int y = static_cast<int>((world_y - map_origin_y_) / map_resolution_);
+  // Map origin is at (150, 150) in grid coordinates, representing (0, 0) in world coordinates
+  int x = static_cast<int>(world_x / map_resolution_) + 150;
+  int y = static_cast<int>(world_y / map_resolution_) + 150;
   return CellIndex(x, y);
 }
 
@@ -185,8 +196,10 @@ geometry_msgs::msg::PoseStamped PlannerCore::gridToWorld(const CellIndex& cell) 
   pose.header.frame_id = "map";
   pose.header.stamp = rclcpp::Time();
   
-  pose.pose.position.x = map_origin_x_ + cell.x * map_resolution_;
-  pose.pose.position.y = map_origin_y_ + cell.y * map_resolution_;
+  // Convert from grid coordinates to world coordinates
+  // Grid center (150, 150) represents world origin (0, 0)
+  pose.pose.position.x = (cell.x - 150) * map_resolution_;
+  pose.pose.position.y = (cell.y - 150) * map_resolution_;
   pose.pose.position.z = 0.0;
   
   pose.pose.orientation.w = 1.0;
@@ -214,11 +227,18 @@ std::vector<geometry_msgs::msg::PoseStamped> PlannerCore::smoothPath(const std::
   }
   
   // Always include the last point
-  if (smoothed.back() != path.back()) {
+  if (smoothed.back().pose.position.x != path.back().pose.position.x ||
+      smoothed.back().pose.position.y != path.back().pose.position.y) {
     smoothed.push_back(path.back());
   }
   
   return smoothed;
+}
+
+double PlannerCore::calculateDistance(const geometry_msgs::msg::Point& a, const geometry_msgs::msg::Point& b) const {
+  double dx = a.x - b.x;
+  double dy = a.y - b.y;
+  return std::sqrt(dx * dx + dy * dy);
 }
 
 } 
