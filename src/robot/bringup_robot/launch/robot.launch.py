@@ -3,11 +3,23 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.descriptions import Parameter
 
 import os
 
 def generate_launch_description():
     ld = LaunchDescription() # Begin building a launch description
+
+    #################### Static Transform Publishers #####################
+    # Static transform from sim_world to map frame
+    # This establishes the coordinate frame relationship
+    static_transform_sim_world_to_map = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_transform_sim_world_to_map',
+        arguments=['0', '0', '0', '0', '0', '0', 'sim_world', 'map']
+    )
+    ld.add_action(static_transform_sim_world_to_map)
 
     #################### Costmap Node #####################
     costmap_pkg_prefix = get_package_share_directory('costmap')
