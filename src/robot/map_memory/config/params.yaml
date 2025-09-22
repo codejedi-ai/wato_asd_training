@@ -1,3 +1,13 @@
-# map_memory_node:
-#   ros__parameters:
-    
+map_memory_node:
+  ros__parameters:
+    distance_threshold: 0.5
+    update_frequency: 1.0
+    map_resolution: 0.05
+    map_width: 100.0
+    map_height: 100.0
+    map_origin_x: -50.0
+    map_origin_y: -50.0
+
+    costmap_topic: "/costmap"
+    odom_topic: "/odom/filtered"
+    map_topic: "/map"

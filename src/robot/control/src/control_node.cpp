@@ -1,91 +1,144 @@
-#include <rclcpp/rclcpp.hpp>
-#include <nav_msgs/msg/path.hpp>
-#include <nav_msgs/msg/odometry.hpp>
-#include <geometry_msgs/msg/twist.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
-#include <cmath>
-#include <optional>
-#include "control_core.hpp"
+#include "control_node.hpp"
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2/LinearMath/Matrix3x3.h"
 
-class PurePursuitController : public rclcpp::Node {
-public:
-    PurePursuitController() : Node("pure_pursuit_controller"), core_(this->get_logger()) {
-        // Initialize parameters
-        double lookahead_distance = 1.0;  // Lookahead distance
-        double goal_tolerance = 0.1;     // Distance to consider the goal reached
-        double linear_speed = 0.5;       // Constant forward speed
-        
-        // Set parameters in core
-        core_.setParameters(lookahead_distance, goal_tolerance, linear_speed);
- 
-        // Subscribers and Publishers
-        path_sub_ = this->create_subscription<nav_msgs::msg::Path>(
-            "/path", 10, [this](const nav_msgs::msg::Path::SharedPtr msg) { 
-                current_path_ = msg; 
-                RCLCPP_INFO(this->get_logger(), "Received path with %zu waypoints", msg->poses.size());
-            });
- 
-        odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom/filtered", 10, [this](const nav_msgs::msg::Odometry::SharedPtr msg) { 
-                robot_odom_ = msg; 
-            });
- 
-        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
- 
-        // Timer for control loop (10 Hz)
-        control_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(100), [this]() { controlLoop(); });
-            
-        RCLCPP_INFO(this->get_logger(), "Pure Pursuit Controller started");
+ControlNode::ControlNode(): Node("control"), control_(robot::ControlCore(this->get_logger())) {
+  odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("/odom/filtered", 10, [this](const nav_msgs::msg::Odometry::SharedPtr msg) { odom_ = msg; });
+  path_sub_ = this->create_subscription<nav_msgs::msg::Path>("/path", 10, [this](const nav_msgs::msg::Path::SharedPtr msg) {
+    if (!msg || msg->poses.empty()) {
+      RCLCPP_WARN(this->get_logger(), "Received empty path; clearing current path and stopping");
+      cur_path_.reset();
+      if (cmd_vel_pub_) {
+        cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
+      }
+      return;
     }
- 
-private:
-    void controlLoop() {
-        // Skip control if no path or odometry data is available
-        if (!current_path_ || !robot_odom_) {
-            return;
-        }
-        
-        // Check if goal is reached
-        if (core_.isGoalReached(current_path_, robot_odom_)) {
-            // Stop the robot
-            geometry_msgs::msg::Twist stop_cmd;
-            stop_cmd.linear.x = 0.0;
-            stop_cmd.angular.z = 0.0;
-            cmd_vel_pub_->publish(stop_cmd);
-            
-            RCLCPP_INFO(this->get_logger(), "Goal reached! Stopping robot.");
-            return;
-        }
- 
-        // Compute velocity command using core
-        auto cmd_vel = core_.computeVelocity(current_path_, robot_odom_);
- 
-        // Publish the velocity command
-        cmd_vel_pub_->publish(cmd_vel);
+    cur_path_ = msg;
+    RCLCPP_INFO(this->get_logger(), "New path received with %zu poses", msg->poses.size());
+  });
+  costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>("/costmap", 10, [this](const nav_msgs::msg::OccupancyGrid::SharedPtr msg) { costmap_ = msg; });
+  cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+  timer_ = this->create_wall_timer(std::chrono::milliseconds(dt_), [this]() { this->controlLoop(); });
+}
+void ControlNode::controlLoop() {
+  if (!cur_path_ || !odom_) {
+    RCLCPP_ERROR(this->get_logger(), "No path or odom received");
+    return;
+  }
+  if (cur_path_->poses.empty()) {
+    RCLCPP_WARN(this->get_logger(), "Current path has 0 poses; stopping");
+    cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
+    cur_path_.reset();
+    return;
+  }
+  double dis = computeDis(odom_->pose.pose.position, cur_path_->poses.back().pose.position);
+  if (dis < goal_tolerance_) {
+    RCLCPP_INFO(this->get_logger(), "Goal reached, stopping robot and clearing path");
+    cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
+    cur_path_.reset(); // Clear the path
+    return;
+  }
+  auto lookahead = findLookahead();
+  if (dis < lookahead_distance_) {
+    lookahead = cur_path_->poses.back();
+  } else if (!lookahead.has_value()) {
+    cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
+    return;
+  }
+  auto cmd = computeVel(lookahead.value());
+  
+  if (costmap_ && isNearObstacle(odom_->pose.pose.position.x, odom_->pose.pose.position.y, 0.3)) {
+    cmd.linear.x *= 0.7; // Reduce speed to 70% when near obstacles
+    RCLCPP_WARN(this->get_logger(), "Near obstacle, reducing speed to %.2f", cmd.linear.x);
+  }
+  
+  cmd_vel_pub_->publish(cmd);
+}
+
+std::optional<geometry_msgs::msg::PoseStamped> ControlNode::findLookahead() {
+  for (auto& pose : cur_path_->poses) {
+    double dis = computeDis(odom_->pose.pose.position, pose.pose.position);
+    if (dis >= lookahead_distance_) {
+      return pose;
     }
- 
-    // Subscribers and Publishers
-    rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
- 
-    // Timer
-    rclcpp::TimerBase::SharedPtr control_timer_;
- 
-    // Data
-    nav_msgs::msg::Path::SharedPtr current_path_;
-    nav_msgs::msg::Odometry::SharedPtr robot_odom_;
-    
-    // Core functionality
-    robot::ControlCore core_;
-};
- 
-// Main function
-int main(int argc, char **argv) {
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<PurePursuitController>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return 0;
+  }
+  return std::nullopt;
+}
+
+double ControlNode::computeDis(const geometry_msgs::msg::Point& a, const geometry_msgs::msg::Point& b) {
+  return std::hypot(a.x - b.x, a.y - b.y);
+}
+
+bool ControlNode::isNearObstacle(double x, double y, double threshold) {
+  if (!costmap_) return false;
+  
+  // Convert world coordinates to costmap grid coordinates
+  double origin_x = costmap_->info.origin.position.x;
+  double origin_y = costmap_->info.origin.position.y;
+  double resolution = costmap_->info.resolution;
+  
+  int grid_x = static_cast<int>((x - origin_x) / resolution);
+  int grid_y = static_cast<int>((y - origin_y) / resolution);
+  
+  if (grid_x < 0 || grid_x >= static_cast<int>(costmap_->info.width) ||
+      grid_y < 0 || grid_y >= static_cast<int>(costmap_->info.height)) {
+    return true; 
+  }
+  
+  int radius = static_cast<int>(threshold / resolution);
+  for (int dy = -radius; dy <= radius; dy++) {
+    for (int dx = -radius; dx <= radius; dx++) {
+      int check_x = grid_x + dx;
+      int check_y = grid_y + dy;
+      
+      if (check_x >= 0 && check_x < static_cast<int>(costmap_->info.width) &&
+          check_y >= 0 && check_y < static_cast<int>(costmap_->info.height)) {
+        int index = check_y * costmap_->info.width + check_x;
+        if (index < static_cast<int>(costmap_->data.size())) {
+          int8_t cost = costmap_->data[index];
+
+          if (cost > 50) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  
+  return false;
+}
+
+geometry_msgs::msg::Twist ControlNode::computeVel(const geometry_msgs::msg::PoseStamped& target) {
+  double dx = target.pose.position.x - odom_->pose.pose.position.x;
+  double dy = target.pose.position.y - odom_->pose.pose.position.y;
+  tf2::Quaternion quat(odom_->pose.pose.orientation.x, odom_->pose.pose.orientation.y, odom_->pose.pose.orientation.z, odom_->pose.pose.orientation.w);
+  tf2::Matrix3x3 m(quat);
+  double roll, pitch, yaw;
+  m.getRPY(roll, pitch, yaw);
+
+  double target_yaw = std::atan2(dy, dx);
+  double yaw_error = target_yaw - yaw;
+
+  while (yaw_error > M_PI) {
+    yaw_error -= 2 * M_PI;
+  }
+  while (yaw_error < -M_PI) {
+    yaw_error += 2 * M_PI;
+  }
+
+  double dis = computeDis(odom_->pose.pose.position, cur_path_->poses.back().pose.position);
+  geometry_msgs::msg::Twist cmd;
+  cmd.linear.x = std::min(lin_kp_ * dis, max_lin_vel_);
+  cmd.angular.z = target == cur_path_->poses.back() ? 0 : ang_kp_ * yaw_error;
+  return cmd;
+}
+
+
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<ControlNode>());
+  rclcpp::shutdown();
+  return 0;
 }

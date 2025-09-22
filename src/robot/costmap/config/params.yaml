@@ -1,3 +1,2 @@
-# costmap_node:
-#   ros__parameters:
-
+costmap_node:
+  ros__parameters: {}

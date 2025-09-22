@@ -2,24 +2,25 @@
 #define COSTMAP_NODE_HPP_
  
 #include "rclcpp/rclcpp.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
+ 
 #include "costmap_core.hpp"
  
 class CostmapNode : public rclcpp::Node {
   public:
     CostmapNode();
+    
+    // Place callback function here
+    void publishMessage();
+    void laserScanCallback(const sensor_msgs::msg::LaserScan::SharedPtr msg);
  
   private:
-    // ROS constructs
-    rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_sub_;
+    robot::CostmapCore costmap_;
+    // Place these constructs here
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_pub_;
-    
-    // Callback function
-    void lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan);
-    
-    // Core functionality
-    robot::CostmapCore core_;
-};
+    rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
+}; 
  
 #endif 
