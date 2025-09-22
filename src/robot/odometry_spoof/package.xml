@@ -4,7 +4,7 @@
   <version>0.0.0</version>
   <description>Spoofs Odometry Signal using Simulation Transforms</description>
 
-  <maintainer email="e23zhou@watonomous.ca">Eddy Zhou</maintainer>
+  <maintainer email="d273liu@uwaterloo.ca">Darcy Liu</maintainer>
   <license>Apache2.0</license>
 
   <!--https://www.ros.org/reps/rep-0149.html#dependency-tags-->

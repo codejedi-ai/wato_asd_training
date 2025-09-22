@@ -4,7 +4,7 @@
   <version>0.0.0</version>
   <description>Bringup Robot package for launching the robot</description>
 
-  <maintainer email="e23zhou@watonomous.ca">Eddy Zhou</maintainer>
+  <maintainer email="d273liu@uwaterloo.ca">Darcy Liu</maintainer>
   <license>Apache2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -14,7 +14,6 @@
   <depend>map_memory</depend>
   <depend>planner</depend>
   <depend>control</depend>
-  <depend>tf2_ros</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
